@@ -1,0 +1,104 @@
+{
+    "name": "travel-offer-api",
+    "version": "1.0.0",
+    "description": "REST API for analyzing HTML content from Travel Offer Assistant extension",
+    "main": "src/app.js",
+    "scripts": {
+      "start": "node src/app.js",
+      "dev": "nodemon src/app.js",
+      "build": "npm run lint && npm run test",
+      "test": "jest",
+      "test:watch": "jest --watch",
+      "test:coverage": "jest --coverage",
+      "test:unit": "jest --testPathPattern=unit",
+      "test:integration": "jest --testPathPattern=integration",
+      "lint": "eslint src/ tests/",
+      "lint:fix": "eslint src/ tests/ --fix",
+      "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
+      "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\"",
+      "audit": "npm audit",
+      "audit:fix": "npm audit fix",
+      "docker:build": "docker build -t travel-offer-api .",
+      "docker:run": "docker run -p 3000:3000 --env-file .env travel-offer-api",
+      "docker:compose": "docker-compose up -d",
+      "docker:compose:down": "docker-compose down",
+      "prepare": "husky install"
+    },
+    "keywords": [
+      "api",
+      "html-analysis",
+      "travel",
+      "hotels",
+      "flights",
+      "transfers",
+      "rest-api",
+      "nodejs",
+      "express"
+    ],
+    "author": "Your Name <your.email@example.com>",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/your-org/travel-offer-api.git"
+    },
+    "bugs": {
+      "url": "https://github.com/your-org/travel-offer-api/issues"
+    },
+    "homepage": "https://github.com/your-org/travel-offer-api#readme",
+    "engines": {
+      "node": ">=18.0.0",
+      "npm": ">=8.0.0"
+    },
+    "dependencies": {
+      "express": "^4.18.2",
+      "cors": "^2.8.5",
+      "helmet": "^7.0.0",
+      "express-rate-limit": "^6.7.0",
+      "jsonwebtoken": "^9.0.0",
+      "joi": "^17.9.2",
+      "cheerio": "^1.0.0-rc.12",
+      "jsdom": "^21.1.1",
+      "winston": "^3.8.2",
+      "dotenv": "^16.0.3",
+      "compression": "^1.7.4",
+      "express-validator": "^7.0.1",
+      "uuid": "^9.0.0"
+    },
+    "devDependencies": {
+      "jest": "^29.5.0",
+      "supertest": "^6.3.3",
+      "nodemon": "^2.0.22",
+      "eslint": "^8.40.0",
+      "eslint-config-prettier": "^8.8.0",
+      "eslint-plugin-jest": "^27.2.1",
+      "eslint-plugin-node": "^11.1.0",
+      "prettier": "^2.8.8",
+      "husky": "^8.0.3",
+      "lint-staged": "^13.2.1"
+    },
+    "lint-staged": {
+      "*.js": [
+        "eslint --fix",
+        "prettier --write"
+      ]
+    },
+    "jest": {
+      "testEnvironment": "node",
+      "collectCoverageFrom": [
+        "src/**/*.js",
+        "!src/app.js"
+      ],
+      "coverageThreshold": {
+        "global": {
+          "branches": 80,
+          "functions": 80,
+          "lines": 80,
+          "statements": 80
+        }
+      },
+      "testMatch": [
+        "**/tests/**/*.test.js",
+        "**/tests/**/*.spec.js"
+      ]
+    }
+  }
