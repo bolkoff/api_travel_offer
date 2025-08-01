@@ -8,9 +8,20 @@
       "healthcheck": "node src/healthcheck.js"
     },
     "dependencies": {
-      "express": "^4.18.2"
+      "express": "^4.18.2",
+      "axios": "^1.6.0",
+      "redis": "^4.6.0"
     },
     "devDependencies": {
       "nodemon": "^3.0.1"
+    },
+    "nodemonConfig": {
+      "watch": ["src"],
+      "ext": "js,json",
+      "ignore": ["src/**/*.test.js", "src/**/*.spec.js"],
+      "delay": "1000",
+      "env": {
+        "NODE_ENV": "development"
+      }
     }
   }
