@@ -1,0 +1,96 @@
+# Caddyfile для разработки Travel Offer API
+api-dev.your-domain.com {
+    # Логирование
+    log {
+        output file /var/log/caddy/api-dev.log
+        format json
+    }
+
+    # Проксирование к API контейнеру
+    reverse_proxy travel-offer-api-dev:3000 {
+        # Health check
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 10s
+        
+        # Настройки прокси
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+        
+        # Таймауты
+        timeout 30s
+        fail_duration 10s
+        max_fails 3
+    }
+
+    # CORS настройки для разработки
+    header {
+        Access-Control-Allow-Origin *
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+        Access-Control-Allow-Credentials true
+    }
+
+    # Обработка OPTIONS запросов
+    @options {
+        method OPTIONS
+    }
+    respond @options 200 {
+        header Access-Control-Allow-Origin *
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "Content-Type, Authorization"
+        header Access-Control-Allow-Credentials true
+    }
+
+    # Безопасность
+    header {
+        # Убираем заголовки безопасности для разработки
+        -Server
+        -X-Powered-By
+    }
+
+    # Gzip сжатие
+    encode gzip
+}
+
+# Альтернативный домен для локальной разработки
+api-dev.localhost {
+    # Логирование
+    log {
+        output stdout
+        format console
+    }
+
+    # Проксирование к API контейнеру
+    reverse_proxy travel-offer-api-dev:3000 {
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 10s
+        
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # CORS настройки
+    header {
+        Access-Control-Allow-Origin *
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+        Access-Control-Allow-Credentials true
+    }
+
+    # Обработка OPTIONS запросов
+    @options {
+        method OPTIONS
+    }
+    respond @options 200 {
+        header Access-Control-Allow-Origin *
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "Content-Type, Authorization"
+        header Access-Control-Allow-Credentials true
+    }
+} 

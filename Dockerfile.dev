@@ -1,0 +1,31 @@
+# Используем официальный Node.js образ для разработки
+FROM node:18-alpine
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Устанавливаем curl для health checks
+RUN apk add --no-cache curl
+
+# Копируем файлы зависимостей
+COPY package*.json ./
+
+# Устанавливаем все зависимости (включая dev dependencies)
+RUN npm ci
+
+# Копируем исходный код
+COPY . .
+
+# Создаем необходимые директории
+RUN mkdir -p logs && \
+    chmod 755 logs
+
+# Открываем порт
+EXPOSE 3000
+
+# Проверка здоровья
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/api/health || exit 1
+
+# Запускаем в режиме разработки с nodemon
+CMD ["npm", "run", "dev"] 
