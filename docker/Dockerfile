@@ -4,11 +4,11 @@ FROM node:18-alpine
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файлы зависимостей
+# Копируем файлы зависимостей из корня проекта
 COPY package*.json ./
 
-# Устанавливаем зависимости
-RUN npm ci --only=production && npm cache clean --force
+# Устанавливаем зависимости (используем npm install вместо npm ci)
+RUN npm install --only=production
 
 # Копируем исходный код
 COPY . .
@@ -29,7 +29,7 @@ EXPOSE 3000
 
 # Проверка здоровья
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node healthcheck.js
+  CMD node src/healthcheck.js
 
 # Запускаем приложение
 CMD ["npm", "start"]
