@@ -1,14 +1,17 @@
 const express = require('express');
 const N8nService = require('./services/n8nService');
+const HtmlAnalyzer = require('./services/htmlAnalyzer');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Инициализация сервиса n8n
+// Инициализация сервисов
 const n8nService = new N8nService();
+const htmlAnalyzer = new HtmlAnalyzer();
+htmlAnalyzer.setN8nService(n8nService);
 
 // Middleware для парсинга JSON
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит для больших HTML
 
 // Middleware для логирования
 app.use((req, res, next) => {
@@ -18,10 +21,9 @@ app.use((req, res, next) => {
 
 // Базовый маршрут
 app.get('/', (req, res) => {
-  res.json({
-    message: 'Travel Offer API работает!',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+  res.status(404).json({
+    message: 'Маршрут не найден',
+    path: req.originalUrl
   });
 });
 
@@ -63,36 +65,61 @@ app.get('/api/test', async (req, res) => {
   }
 });
 
-// Специальный endpoint для тестового webhook
-app.post('/api/n8n/test-webhook', async (req, res) => {
+// Анализ HTML элементов
+app.post('/api/analyze', async (req, res) => {
   try {
-    const data = req.body;
-    const webhookPath = '/webhook-test/151c376e-fb7f-4af6-a425-fc0f91f955b3';
-    
-    console.log('Запускаем тестовый webhook');
-    console.log('Данные:', data); 
+    const { html_elements, mode } = req.body;
 
-    const result = await n8nService.triggerWebhook(webhookPath, data);
-    
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'Тестовый webhook выполнен успешно',
-        webhook: webhookPath,
-        result: result.data
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Ошибка при выполнении тестового webhook',
-        message: result.error,
-        webhook: webhookPath
+    // Валидация входных данных
+    if (!html_elements || !Array.isArray(html_elements)) {
+      return res.status(400).json({
+        error: 'Неверный формат данных',
+        message: 'html_elements должен быть массивом'
       });
     }
+
+    if (html_elements.length === 0) {
+      return res.status(400).json({
+        error: 'Пустой массив',
+        message: 'html_elements не может быть пустым'
+      });
+    }
+
+    // Проверяем структуру элементов - только content
+    for (let i = 0; i < html_elements.length; i++) {
+      const element = html_elements[i];
+      if (!element.content) {
+        return res.status(400).json({
+          error: 'Неверная структура элемента',
+          message: `Элемент ${i} должен содержать поле content`
+        });
+      }
+    }
+
+    // Валидация режима анализа
+    if (mode && !['html', 'markdown'].includes(mode)) {
+      return res.status(400).json({
+        error: 'Неверный режим анализа',
+        message: 'mode должен быть "html" или "markdown"'
+      });
+    }
+
+    console.log(`Начинаем анализ ${html_elements.length} HTML элементов`);
+    console.log(`Режим анализа: ${mode || 'html'}`);
+
+    // Выполняем анализ
+    const analysisResult = await htmlAnalyzer.analyzeHtmlElements(html_elements, { mode });
+
+    res.json({
+      success: true,
+      message: 'Анализ завершен',
+      ...analysisResult
+    });
+
   } catch (error) {
-    console.error('Ошибка при выполнении тестового webhook:', error);
+    console.error('Ошибка в /api/analyze:', error);
     res.status(500).json({
-      error: 'Ошибка при выполнении тестового webhook',
+      error: 'Ошибка при анализе HTML',
       message: error.message
     });
   }
@@ -115,15 +142,14 @@ app.use('*', (req, res) => {
   });
 });
 
-
-
 // Запуск сервера
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${port}`);
   console.log(` Health check: http://localhost:${port}/api/health`);
   console.log(` Тестовый endpoint: http://localhost:${port}/api/test`);
+  console.log(`🔍 Анализ HTML: POST http://localhost:${port}/api/analyze`);
   console.log(`🔗 Тестовый webhook: POST http://localhost:${port}/api/n8n/test-webhook`);
-  console.log(`🔗 Универсальный webhook: POST http://localhost:${port}/api/n8n/webhook/{name}/{id}`);
+  console.log(` N8N webhooks: http://localhost:${port}/api/n8n/webhooks`);
   console.log(`🌍 Окружение: ${process.env.NODE_ENV || 'development'}`);
 });
 

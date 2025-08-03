@@ -1,32 +1,53 @@
 const axios = require('axios');
+const n8nWebhooks = require('../config/n8nWebhooks');
 
 class N8nService {
   constructor() {
-    // Для внутренних запросов используем HTTP и имя контейнера
     this.internalUrl = process.env.N8N_INTERNAL_URL || 'http://n8n:5678';
-    // Для внешних webhook используем HTTPS
     this.externalUrl = process.env.N8N_EXTERNAL_URL || 'https://n8n.element.travel';
-    this.timeout = 30000; // 30 секунд
+    this.timeout = 30000;
   }
 
-  // Запустить workflow по webhook URL (GET запрос)
-  async triggerWebhook(webhookPath, data = {}) {
+  // Запустить workflow по имени из мапы
+  async triggerWebhookByName(webhookName, data = {}) {
+    const webhookConfig = n8nWebhooks[webhookName];
+    
+    if (!webhookConfig) {
+      throw new Error(`Webhook "${webhookName}" не найден в конфигурации`);
+    }
+
+    return this.triggerWebhook(webhookConfig.path, data, webhookConfig.method);
+  }
+
+  // Запустить workflow по webhook URL с указанием метода
+  async triggerWebhook(webhookPath, data = {}, method = 'GET') {
     try {
-      // Используем внутренний URL для запросов внутри Docker сети
       const webhookUrl = `${this.internalUrl}${webhookPath}`;
-      console.log(`Отправляем GET запрос к webhook: ${webhookUrl}`);
-      console.log('Параметры запроса:', JSON.stringify(data, null, 2));
+      console.log(`Отправляем ${method} запрос к webhook: ${webhookUrl}`);
+      console.log('Данные запроса:', JSON.stringify(data, null, 2));
       
-      // Используем GET запрос с параметрами в URL
-      const params = new URLSearchParams(data);
-      const fullUrl = params.toString() ? `${webhookUrl}?${params.toString()}` : webhookUrl;
+      let response;
       
-      const response = await axios.get(fullUrl, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
-      });
+      if (method.toUpperCase() === 'POST') {
+        // POST запрос с данными в body
+        response = await axios.post(webhookUrl, data, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: this.timeout
+        });
+      } else {
+        // GET запрос с параметрами в URL
+        const params = new URLSearchParams(data);
+        const fullUrl = params.toString() ? `${webhookUrl}?${params.toString()}` : webhookUrl;
+        
+        response = await axios.get(fullUrl, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: this.timeout
+        });
+      }
       
       console.log('Webhook выполнен успешно:', response.status);
       console.log('Ответ:', response.data);
@@ -50,42 +71,12 @@ class N8nService {
     }
   }
 
-  // Получить список активных webhook
-  async getActiveWebhooks() {
-    try {
-      const response = await axios.get(`${this.internalUrl}/api/v1/workflows`, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
-      });
-      
-      const workflows = response.data;
-      const webhooks = [];
-      
-      workflows.forEach(workflow => {
-        if (workflow.active && workflow.webhooks) {
-          workflow.webhooks.forEach(webhook => {
-            webhooks.push({
-              workflowId: workflow.id,
-              workflowName: workflow.name,
-              webhookId: webhook.id,
-              webhookPath: webhook.path,
-              fullPath: `/webhook-${webhook.path}`,
-              method: webhook.httpMethod || 'GET'
-            });
-          });
-        }
-      });
-      
-      return webhooks;
-    } catch (error) {
-      console.error('Ошибка при получении webhook:', error.message);
-      return [];
-    }
+  // Получить список доступных webhook
+  getAvailableWebhooks() {
+    return n8nWebhooks;
   }
 
-  // Проверить доступность n8n (внутренний запрос)
+  // Проверить доступность n8n
   async checkHealth() {
     try {
       const response = await axios.get(`${this.internalUrl}/api/v1/health`, {
@@ -103,7 +94,6 @@ class N8nService {
     }
   }
 
-  // Получить информацию о конфигурации
   getConfig() {
     return {
       internalUrl: this.internalUrl,

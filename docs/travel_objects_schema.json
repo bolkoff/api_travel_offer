@@ -1,0 +1,602 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Tour Proposal",
+    "type": "object",
+    "properties": {
+      "proposal_id": {
+        "type": "string",
+        "description": "Уникальный ID предложения"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "last_updated": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["draft", "published", "archived"],
+        "default": "draft"
+      },
+      "general": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "destination": {
+            "type": "string"
+          },
+          "travel_period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": ["start", "end"]
+          },
+          "total_price": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number",
+                "minimum": 0
+              },
+              "currency": {
+                "type": "string",
+                "default": "RUB",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "price_breakdown": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "component": {
+                      "type": "string",
+                      "enum": ["flights", "accommodation", "transfers", "insurance", "visa", "tours"]
+                    },
+                    "amount": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "required": ["amount", "currency"]
+          },
+          "main_images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "source_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "is_primary": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["url"]
+            }
+          },
+          "videos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "thumbnail": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Внутренние заметки для менеджера"
+          }
+        },
+        "required": ["title", "destination", "travel_period", "total_price"]
+      },
+      "flight_options": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^flt_"
+            },
+            "airline": {
+              "type": "string"
+            },
+            "airline_logo": {
+              "type": "string",
+              "format": "uri"
+            },
+            "departure": {
+              "type": "object",
+              "properties": {
+                "airport": {
+                  "type": "string"
+                },
+                "airport_code": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "terminal": {
+                  "type": "string"
+                },
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": ["airport", "date"]
+            },
+            "arrival": {
+              "type": "object",
+              "properties": {
+                "airport": {
+                  "type": "string"
+                },
+                "airport_code": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "terminal": {
+                  "type": "string"
+                },
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": ["airport", "date"]
+            },
+            "flight_number": {
+              "type": "string"
+            },
+            "travel_class": {
+              "type": "string",
+              "enum": ["economy", "premium_economy", "business", "first"]
+            },
+            "baggage": {
+              "type": "object",
+              "properties": {
+                "cabin": {
+                  "type": "string"
+                },
+                "checked": {
+                  "type": "string"
+                }
+              }
+            },
+            "duration_minutes": {
+              "type": "integer"
+            },
+            "is_direct": {
+              "type": "boolean"
+            },
+            "layovers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "airport": {
+                    "type": "string"
+                  },
+                  "duration_minutes": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "price_details": {
+              "type": "object",
+              "properties": {
+                "base_fare": {
+                  "type": "number"
+                },
+                "taxes": {
+                  "type": "number"
+                },
+                "fees": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": ["total"]
+            },
+            "booking_deadline": {
+              "type": "string",
+              "format": "date"
+            },
+            "cancellation_policy": {
+              "type": "string"
+            },
+            "source_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "last_updated": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": ["id", "departure", "arrival", "price_details"]
+        }
+      },
+      "accommodation_options": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "hotel": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^hot_"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "chain": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "rating": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "location": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string"
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "coordinates": {
+                      "type": "object",
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "distance_to_airport_km": {
+                      "type": "number"
+                    },
+                    "distance_to_center_km": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["city", "country"]
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "amenities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "images": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": ["exterior", "lobby", "pool", "restaurant", "spa", "gym", "beach"]
+                      },
+                      "caption": {
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "is_primary": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["url"]
+                  }
+                },
+                "contact_info": {
+                  "type": "object",
+                  "properties": {
+                    "phone": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email"
+                    },
+                    "website": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  }
+                },
+                "source_url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": ["id", "name", "location"]
+            },
+            "duration": {
+              "type": "object",
+              "properties": {
+                "nights": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "check_in": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "check_out": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "early_check_in": {
+                  "type": "boolean"
+                },
+                "late_check_out": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["nights", "check_in", "check_out"]
+            },
+            "room_options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^room_"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "size_sqm": {
+                    "type": "number"
+                  },
+                  "bed_configuration": {
+                    "type": "string"
+                  },
+                  "max_occupancy": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "meal_plan": {
+                    "type": "string",
+                    "enum": ["RO", "BB", "HB", "FB", "AI", "UAI"]
+                  },
+                  "price_per_night": {
+                    "type": "number"
+                  },
+                  "total_price": {
+                    "type": "number"
+                  },
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "view": {
+                          "type": "string",
+                          "enum": ["sea", "garden", "city", "mountain", "pool"]
+                        },
+                        "is_primary": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["url"]
+                    }
+                  },
+                  "amenities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "availability": {
+                    "type": "string",
+                    "enum": ["available", "limited", "on_request"]
+                  },
+                  "booking_conditions": {
+                    "type": "string"
+                  },
+                  "source_url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": ["id", "type", "price_per_night"]
+              }
+            }
+          },
+          "required": ["hotel", "duration", "room_options"]
+        }
+      },
+      "transfer_options": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^trf_"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["airport-hotel", "hotel-airport", "interhotel", "private", "shuttle"]
+            },
+            "description": {
+              "type": "string"
+            },
+            "vehicle_type": {
+              "type": "string"
+            },
+            "capacity": {
+              "type": "integer"
+            },
+            "price": {
+              "type": "number"
+            },
+            "included_in_package": {
+              "type": "boolean"
+            },
+            "duration_minutes": {
+              "type": "integer"
+            },
+            "meet_and_greet": {
+              "type": "boolean"
+            }
+          },
+          "required": ["id", "type", "price"]
+        }
+      },
+      "additional_services": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^srv_"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["insurance", "visa", "tour", "car_rental", "sim_card", "equipment"]
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "price": {
+              "type": "number"
+            },
+            "mandatory": {
+              "type": "boolean"
+            },
+            "provider": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "type", "name", "price"]
+        }
+      },
+      "documents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^doc_"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["contract", "voucher", "itinerary", "ticket", "insurance_policy"]
+            },
+            "name": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "generated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": ["id", "type", "name", "url"]
+        }
+      }
+    },
+    "required": [
+      "proposal_id",
+      "created_at",
+      "status",
+      "general",
+      "flight_options",
+      "accommodation_options"
+    ]
+  }
