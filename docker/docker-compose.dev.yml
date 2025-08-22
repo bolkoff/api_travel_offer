@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Travel Offer API сервис
   api:
@@ -11,6 +9,11 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=element_db
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass_secret
       - POSTGRES_URL=postgresql://user:pass_secret@postgres:5432/element_db
       - REDIS_URL=redis://redis:6379
     volumes:
@@ -50,6 +53,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # Инициализационные скрипты (если нужны)
       - ../db/init:/docker-entrypoint-initdb.d
+      # Миграционные скрипты
+      - ../db/migrations:/docker-entrypoint-initdb.d/migrations
     ports:
       - "5432:5432"
     networks:

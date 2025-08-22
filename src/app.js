@@ -5,6 +5,7 @@ const AuthService = require('./services/AuthService');
 const OfferService = require('./services/OfferService');
 const OfferRepository = require('./repositories/OfferRepository');
 const OfferController = require('./controllers/OfferController');
+const { db } = require('./config/database');
 
 class App {
   constructor() {
@@ -51,13 +52,36 @@ class App {
   }
 
   setupRoutes() {
-    // Health check
-    this.app.get('/api/health', (req, res) => {
-      res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
-      });
+    // Health check with database connectivity
+    this.app.get('/api/health', async (req, res) => {
+      const timestamp = new Date().toISOString();
+      
+      try {
+        // Проверяем подключение к базе данных
+        const dbHealthy = await db.healthCheck();
+        const connectionInfo = db.getConnectionInfo();
+        
+        res.json({
+          status: 'healthy',
+          timestamp,
+          version: '1.0.0',
+          database: {
+            connected: dbHealthy,
+            ...connectionInfo
+          }
+        });
+      } catch (error) {
+        console.error('Health check failed:', error);
+        res.status(500).json({
+          status: 'unhealthy',
+          timestamp,
+          version: '1.0.0',
+          database: {
+            connected: false,
+            error: error.message
+          }
+        });
+      }
     });
 
     // Offers routes

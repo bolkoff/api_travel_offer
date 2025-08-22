@@ -5,13 +5,16 @@
     "scripts": {
       "start": "node src/server.js",
       "dev": "nodemon src/server.js",
-      "healthcheck": "node src/healthcheck.js"
+      "healthcheck": "node src/healthcheck.js",
+      "migrate": "node scripts/migrate-data.js",
+      "migrate:clean": "node scripts/migrate-data.js --clean"
     },
     "dependencies": {
       "express": "^4.18.2",
       "axios": "^1.6.0",
       "redis": "^4.6.0",
-      "turndown": "^7.1.2"
+      "turndown": "^7.1.2",
+      "pg": "^8.11.3"
     },
     "devDependencies": {
       "nodemon": "^3.0.1"

@@ -1,65 +1,21 @@
-const fs = require('fs').promises;
-const path = require('path');
+const { db } = require('../config/database');
 const ETag = require('../utils/ETag');
 
 class OfferRepository {
   constructor() {
-    // Путь к файлу для персиста данных
-    this.dataFile = path.join(__dirname, '../../data/offers.json');
-    this.offers = [];
-    this.versions = [];
-    this.nextId = 1;
-    this.nextVersionId = 1;
-    
-    // Загружаем данные при инициализации
-    this.loadData();
+    // Инициализируем соединение при создании репозитория
+    this.initConnection();
   }
 
   /**
-   * Загрузить данные из файла
+   * Инициализация подключения к базе данных
    */
-  async loadData() {
+  async initConnection() {
     try {
-      // Создаем папку data если не существует
-      const dataDir = path.dirname(this.dataFile);
-      await fs.mkdir(dataDir, { recursive: true });
-
-      // Пытаемся загрузить данные
-      const data = await fs.readFile(this.dataFile, 'utf8');
-      const parsed = JSON.parse(data);
-      
-      this.offers = parsed.offers || [];
-      this.versions = parsed.versions || [];
-      this.nextId = parsed.nextId || 1;
-      this.nextVersionId = parsed.nextVersionId || 1;
-      
-      console.log(`Loaded ${this.offers.length} offers and ${this.versions.length} versions from file`);
+      await db.connect();
+      console.log('OfferRepository: Database connection established');
     } catch (error) {
-      // Файл не существует или поврежден - используем пустые данные
-      console.log('No existing data file found, starting with empty storage');
-      this.offers = [];
-      this.versions = [];
-      this.nextId = 1;
-      this.nextVersionId = 1;
-    }
-  }
-
-  /**
-   * Сохранить данные в файл
-   */
-  async saveData() {
-    try {
-      const data = {
-        offers: this.offers,
-        versions: this.versions,
-        nextId: this.nextId,
-        nextVersionId: this.nextVersionId,
-        lastUpdated: new Date().toISOString()
-      };
-      
-      await fs.writeFile(this.dataFile, JSON.stringify(data, null, 2), 'utf8');
-    } catch (error) {
-      console.error('Failed to save data:', error);
+      console.error('OfferRepository: Failed to connect to database:', error);
     }
   }
 
@@ -78,49 +34,80 @@ class OfferRepository {
       order = 'desc'
     } = options;
 
-    // Фильтрация по пользователю
-    let filtered = this.offers.filter(offer => offer.userId === userId);
+    try {
+      let query = `
+        SELECT 
+          o.id,
+          ov.title,
+          ov.status,
+          o.current_version as version,
+          o.created_at as "createdAt",
+          o.updated_at as "updatedAt",
+          o.metadata->>'hasUnpublishedChanges' as "hasUnpublishedChanges"
+        FROM offers o
+        JOIN offer_versions ov ON o.id = ov.offer_id AND o.current_version = ov.version
+        WHERE o.user_id = $1
+      `;
 
-    // Фильтрация по статусу
-    if (status) {
-      filtered = filtered.filter(offer => offer.status === status);
-    }
+      const params = [userId];
+      let paramIndex = 2;
 
-    // Сортировка
-    filtered.sort((a, b) => {
-      const aValue = a[orderBy];
-      const bValue = b[orderBy];
-      
-      if (order === 'desc') {
-        return bValue > aValue ? 1 : bValue < aValue ? -1 : 0;
-      } else {
-        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      // Фильтрация по статусу
+      if (status) {
+        query += ` AND ov.status = $${paramIndex}`;
+        params.push(status);
+        paramIndex++;
       }
-    });
 
-    // Подсчет общего количества
-    const total = filtered.length;
+      // Сортировка
+      const orderByMap = {
+        'createdAt': 'o.created_at',
+        'updatedAt': 'o.updated_at',
+        'title': 'ov.title'
+      };
+      const dbOrderBy = orderByMap[orderBy] || 'o.updated_at';
+      query += ` ORDER BY ${dbOrderBy} ${order.toUpperCase()}`;
 
-    // Пагинация
-    const paginated = filtered.slice(offset, offset + limit);
+      // Подсчет общего количества (без пагинации)
+      const countQuery = `
+        SELECT COUNT(*) as total
+        FROM offers o
+        JOIN offer_versions ov ON o.id = ov.offer_id AND o.current_version = ov.version
+        WHERE o.user_id = $1
+        ${status ? `AND ov.status = $2` : ''}
+      `;
+      const countParams = status ? [userId, status] : [userId];
+      const countResult = await db.query(countQuery, countParams);
+      const total = parseInt(countResult.rows[0].total);
 
-    // Маппинг в формат ответа (краткая информация)
-    const offers = paginated.map(offer => ({
-      id: offer.id,
-      title: offer.title,
-      status: offer.status,
-      version: offer.currentVersion, // Переименовываем для совместимости с клиентом
-      createdAt: offer.createdAt,
-      updatedAt: offer.updatedAt,
-      hasUnpublishedChanges: offer.metadata.hasUnpublishedChanges
-    }));
+      // Пагинация
+      query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      params.push(limit, offset);
 
-    return {
-      offers,
-      total,
-      limit,
-      offset
-    };
+      const result = await db.query(query, params);
+
+      // Преобразуем результат в нужный формат
+      const offers = result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        status: row.status,
+        version: row.version,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        hasUnpublishedChanges: row.hasUnpublishedChanges === 'true'
+      }));
+
+      return {
+        offers,
+        total,
+        limit,
+        offset
+      };
+
+    } catch (error) {
+      console.error('OfferRepository.findByUserId error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -129,8 +116,48 @@ class OfferRepository {
    * @returns {Promise<Object|null>} Предложение или null
    */
   async findById(offerId) {
-    const offer = this.offers.find(o => o.id === offerId);
-    return offer || null;
+    try {
+      const query = `
+        SELECT 
+          o.*,
+          ov.title,
+          ov.content,
+          ov.status
+        FROM offers o
+        JOIN offer_versions ov ON o.id = ov.offer_id AND o.current_version = ov.version
+        WHERE o.id = $1
+      `;
+
+      const result = await db.query(query, [offerId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        userId: row.user_id,
+        title: row.title,
+        content: row.content,
+        status: row.status,
+        currentVersion: row.current_version,
+        totalVersions: row.total_versions,
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+        lastModifiedBy: row.last_modified_by,
+        eTag: row.etag,
+        isPublished: row.is_published,
+        publishedVersion: row.published_version,
+        publishedAt: row.published_at ? row.published_at.toISOString() : null,
+        publicUrl: row.public_url,
+        metadata: row.metadata || {}
+      };
+
+    } catch (error) {
+      console.error('OfferRepository.findById error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -139,58 +166,98 @@ class OfferRepository {
    * @returns {Promise<Object>} Созданное предложение
    */
   async create(offerData) {
-    const now = new Date().toISOString();
-    const offerId = `offer_${this.nextId++}`;
-    
-    const newOffer = {
-      id: offerId,
-      userId: offerData.userId,
-      title: offerData.title,
-      content: offerData.content || {},
-      status: offerData.status || 'draft',
-      currentVersion: 1,
-      totalVersions: 1,
-      createdAt: now,
-      updatedAt: now,
-      lastModifiedBy: offerData.userId,
-      eTag: ETag.forOffer({
-        title: offerData.title,
-        content: offerData.content || {},
-        status: offerData.status || 'draft'
-      }),
-      isPublished: false,
-      publishedVersion: null,
-      publishedAt: null,
-      publicUrl: null,
-      metadata: {
-        hasUnpublishedChanges: false,
-        lastAutoSaveAt: null
-      }
-    };
+    const now = new Date();
+    const offerId = `offer_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const versionId = `version_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-    this.offers.push(newOffer);
-    
-    // Создаем первоначальную версию 1
-    const initialVersion = {
-      id: `version_${this.nextVersionId++}`,
-      offerId: offerId,
-      version: 1,
-      title: offerData.title,
-      content: offerData.content || {},
-      status: offerData.status || 'draft',
-      changeType: 'manual',
-      description: 'Первоначальная версия',
-      createdAt: now,
-      createdBy: offerData.userId,
-      isPublished: false
-    };
-    
-    this.versions.push(initialVersion);
-    
-    // Сохраняем данные в файл
-    await this.saveData();
-    
-    return newOffer;
+    try {
+      return await db.transaction(async (client) => {
+        // Создаем запись в offers
+        const etag = ETag.forOffer({
+          title: offerData.title,
+          content: offerData.content || {},
+          status: offerData.status || 'draft'
+        });
+
+        const offerQuery = `
+          INSERT INTO offers (
+            id, user_id, current_version, total_versions, 
+            created_at, updated_at, last_modified_by, etag,
+            is_published, published_version, published_at, public_url, metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING *
+        `;
+
+        const offerParams = [
+          offerId,
+          offerData.userId,
+          1, // current_version
+          1, // total_versions
+          now,
+          now,
+          offerData.userId,
+          etag,
+          false, // is_published
+          null, // published_version
+          null, // published_at
+          null, // public_url
+          JSON.stringify({ hasUnpublishedChanges: false, lastAutoSaveAt: null })
+        ];
+
+        await client.query(offerQuery, offerParams);
+
+        // Создаем первую версию
+        const versionQuery = `
+          INSERT INTO offer_versions (
+            id, offer_id, version, title, content, status,
+            change_type, description, created_at, created_by, is_published
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          RETURNING *
+        `;
+
+        const versionParams = [
+          versionId,
+          offerId,
+          1, // version
+          offerData.title,
+          offerData.content || {}, // PostgreSQL handles JSONB serialization
+          offerData.status || 'draft',
+          'manual',
+          'Первоначальная версия',
+          now,
+          offerData.userId,
+          false
+        ];
+
+        await client.query(versionQuery, versionParams);
+
+        // Возвращаем созданное предложение
+        return {
+          id: offerId,
+          userId: offerData.userId,
+          title: offerData.title,
+          content: offerData.content || {},
+          status: offerData.status || 'draft',
+          currentVersion: 1,
+          totalVersions: 1,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          lastModifiedBy: offerData.userId,
+          eTag: etag,
+          isPublished: false,
+          publishedVersion: null,
+          publishedAt: null,
+          publicUrl: null,
+          metadata: { hasUnpublishedChanges: false, lastAutoSaveAt: null }
+        };
+      });
+
+    } catch (error) {
+      console.error('OfferRepository.create error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -200,27 +267,23 @@ class OfferRepository {
    * @returns {Promise<boolean>} true если удалено, false если не найдено
    */
   async deleteById(offerId, userId) {
-    const index = this.offers.findIndex(offer => 
-      offer.id === offerId && offer.userId === userId
-    );
-    
-    if (index === -1) {
-      return false; // Предложение не найдено или не принадлежит пользователю
-    }
+    try {
+      const query = `
+        DELETE FROM offers 
+        WHERE id = $1 AND user_id = $2
+      `;
 
-    this.offers.splice(index, 1);
-    
-    // Удаляем также все версии этого предложения
-    await this.deleteVersionsByOfferId(offerId);
-    
-    // Сохраняем данные в файл
-    await this.saveData();
-    
-    return true;
+      const result = await db.query(query, [offerId, userId]);
+      return result.rowCount > 0;
+
+    } catch (error) {
+      console.error('OfferRepository.deleteById error:', error);
+      throw error;
+    }
   }
 
   /**
-   * Обновить предложение (полная замена)
+   * Обновить предложение
    * @param {string} offerId - ID предложения
    * @param {string} userId - ID пользователя (для проверки прав)
    * @param {Object} updateData - Новые данные
@@ -228,54 +291,145 @@ class OfferRepository {
    * @returns {Promise<Object>} Обновленное предложение
    */
   async updateById(offerId, userId, updateData, expectedETag) {
-    const offerIndex = this.offers.findIndex(offer => 
-      offer.id === offerId && offer.userId === userId
-    );
-    
-    if (offerIndex === -1) {
-      return null; // Предложение не найдено или не принадлежит пользователю
+    const now = new Date();
+
+    try {
+      return await db.transaction(async (client) => {
+        // Получаем текущее предложение для проверки ETag
+        const selectQuery = `
+          SELECT * FROM offers WHERE id = $1 AND user_id = $2
+        `;
+        const selectResult = await client.query(selectQuery, [offerId, userId]);
+
+        if (selectResult.rows.length === 0) {
+          return null;
+        }
+
+        const existingOffer = selectResult.rows[0];
+
+        // Проверка ETag для optimistic locking
+        if (expectedETag && !ETag.compare(existingOffer.etag, expectedETag)) {
+          throw new Error('ETag mismatch - offer was modified by another user');
+        }
+
+        // Генерируем новый ETag
+        const newETag = ETag.forOffer({
+          title: updateData.title,
+          content: updateData.content || {},
+          status: updateData.status || 'draft'
+        });
+
+        // Определяем новую версию
+        const newCurrentVersion = updateData.currentVersion !== undefined 
+          ? updateData.currentVersion 
+          : (updateData.createVersion 
+            ? existingOffer.current_version + 1 
+            : existingOffer.current_version);
+
+        const newTotalVersions = updateData.createVersion
+          ? existingOffer.total_versions + 1
+          : existingOffer.total_versions;
+
+        // Обновляем offers
+        const updateOfferQuery = `
+          UPDATE offers 
+          SET 
+            current_version = $1,
+            total_versions = $2,
+            updated_at = $3,
+            last_modified_by = $4,
+            etag = $5
+          WHERE id = $6 AND user_id = $7
+          RETURNING *
+        `;
+
+        const updateOfferParams = [
+          newCurrentVersion,
+          newTotalVersions,
+          now,
+          userId,
+          newETag,
+          offerId,
+          userId
+        ];
+
+        const offerResult = await client.query(updateOfferQuery, updateOfferParams);
+
+        // Обновляем или создаем версию
+        if (updateData.createVersion) {
+          // Создаем новую версию
+          const versionId = `version_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const insertVersionQuery = `
+            INSERT INTO offer_versions (
+              id, offer_id, version, title, content, status,
+              change_type, description, created_at, created_by, is_published
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `;
+
+          const insertVersionParams = [
+            versionId,
+            offerId,
+            newCurrentVersion,
+            updateData.title,
+            updateData.content || {}, // PostgreSQL handles JSONB serialization
+            updateData.status || 'draft',
+            'manual',
+            updateData.description || '',
+            now,
+            userId,
+            false
+          ];
+
+          await client.query(insertVersionQuery, insertVersionParams);
+        } else {
+          // Обновляем текущую версию
+          const updateVersionQuery = `
+            UPDATE offer_versions 
+            SET 
+              title = $1,
+              content = $2,
+              status = $3
+            WHERE offer_id = $4 AND version = $5
+          `;
+
+          const updateVersionParams = [
+            updateData.title,
+            updateData.content || {}, // PostgreSQL handles JSONB serialization
+            updateData.status || 'draft',
+            offerId,
+            newCurrentVersion
+          ];
+
+          await client.query(updateVersionQuery, updateVersionParams);
+        }
+
+        // Возвращаем обновленное предложение
+        const row = offerResult.rows[0];
+        return {
+          id: row.id,
+          userId: row.user_id,
+          title: updateData.title,
+          content: updateData.content || {},
+          status: updateData.status || 'draft',
+          currentVersion: row.current_version,
+          totalVersions: row.total_versions,
+          createdAt: row.created_at.toISOString(),
+          updatedAt: row.updated_at.toISOString(),
+          lastModifiedBy: row.last_modified_by,
+          eTag: row.etag,
+          isPublished: row.is_published,
+          publishedVersion: row.published_version,
+          publishedAt: row.published_at ? row.published_at.toISOString() : null,
+          publicUrl: row.public_url,
+          metadata: row.metadata || {}
+        };
+      });
+
+    } catch (error) {
+      console.error('OfferRepository.updateById error:', error);
+      throw error;
     }
-
-    const existingOffer = this.offers[offerIndex];
-
-    // Проверка ETag для optimistic locking
-    if (expectedETag && !ETag.compare(existingOffer.eTag, expectedETag)) {
-      throw new Error('ETag mismatch - offer was modified by another user');
-    }
-
-    const now = new Date().toISOString();
-    
-    // Полная замена данных (согласно PUT семантике)
-    const updatedOffer = {
-      ...existingOffer, // Сохраняем системные поля
-      title: updateData.title,
-      content: updateData.content || {},
-      status: updateData.status || 'draft',
-      updatedAt: now,
-      lastModifiedBy: userId,
-      // Пересчитываем ETag на основе нового содержимого
-      eTag: ETag.forOffer({
-        title: updateData.title,
-        content: updateData.content || {},
-        status: updateData.status || 'draft'
-      }),
-      // Обновляем версию если запрошено или задана напрямую
-      currentVersion: updateData.currentVersion !== undefined 
-        ? updateData.currentVersion 
-        : (updateData.createVersion 
-          ? existingOffer.currentVersion + 1 
-          : existingOffer.currentVersion),
-      totalVersions: updateData.createVersion
-        ? existingOffer.totalVersions + 1
-        : existingOffer.totalVersions
-    };
-
-    this.offers[offerIndex] = updatedOffer;
-    
-    // Сохраняем данные в файл
-    await this.saveData();
-    
-    return updatedOffer;
   }
 
   /**
@@ -285,27 +439,54 @@ class OfferRepository {
    * @returns {Promise<Object>} Созданная версия
    */
   async saveVersion(offerId, versionData) {
-    const now = new Date().toISOString();
-    const versionId = `version_${this.nextVersionId++}`;
-    
-    const newVersion = {
-      id: versionId,
-      offerId: offerId,
-      version: versionData.version,
-      title: versionData.title,
-      content: versionData.content,
-      status: versionData.status,
-      changeType: versionData.changeType || 'manual',
-      description: versionData.description || '',
-      createdAt: now,
-      createdBy: versionData.createdBy,
-      isPublished: false
-    };
+    const now = new Date();
+    const versionId = `version_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-    this.versions.push(newVersion);
-    await this.saveData();
-    
-    return newVersion;
+    try {
+      const query = `
+        INSERT INTO offer_versions (
+          id, offer_id, version, title, content, status,
+          change_type, description, created_at, created_by, is_published
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING *
+      `;
+
+      const params = [
+        versionId,
+        offerId,
+        versionData.version,
+        versionData.title,
+        versionData.content, // PostgreSQL handles JSONB serialization
+        versionData.status,
+        versionData.changeType || 'manual',
+        versionData.description || '',
+        now,
+        versionData.createdBy,
+        false
+      ];
+
+      const result = await db.query(query, params);
+      const row = result.rows[0];
+
+      return {
+        id: row.id,
+        offerId: row.offer_id,
+        version: row.version,
+        title: row.title,
+        content: row.content, // PostgreSQL JSONB already returns as object
+        status: row.status,
+        changeType: row.change_type,
+        description: row.description,
+        createdAt: row.created_at.toISOString(),
+        createdBy: row.created_by,
+        isPublished: row.is_published
+      };
+
+    } catch (error) {
+      console.error('OfferRepository.saveVersion error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -314,32 +495,33 @@ class OfferRepository {
    * @returns {Promise<Array>} Массив версий
    */
   async getVersionsByOfferId(offerId) {
-    let versions = this.versions
-      .filter(v => v.offerId === offerId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
-    // Если нет версий, но offer существует - создаем виртуальную версию 1
-    if (versions.length === 0) {
-      const offer = this.offers.find(o => o.id === offerId);
-      if (offer) {
-        const virtualVersion = {
-          id: `version_virtual_${offer.id}_1`,
-          offerId: offerId,
-          version: 1,
-          title: offer.title,
-          content: offer.content,
-          status: offer.status,
-          changeType: 'manual',
-          description: 'Первоначальная версия',
-          createdAt: offer.createdAt,
-          createdBy: offer.lastModifiedBy,
-          isPublished: offer.isPublished
-        };
-        versions = [virtualVersion];
-      }
+    try {
+      const query = `
+        SELECT * FROM offer_versions 
+        WHERE offer_id = $1 
+        ORDER BY created_at DESC
+      `;
+
+      const result = await db.query(query, [offerId]);
+
+      return result.rows.map(row => ({
+        id: row.id,
+        offerId: row.offer_id,
+        version: row.version,
+        title: row.title,
+        content: row.content, // PostgreSQL JSONB already returns as object
+        status: row.status,
+        changeType: row.change_type,
+        description: row.description,
+        createdAt: row.created_at.toISOString(),
+        createdBy: row.created_by,
+        isPublished: row.is_published
+      }));
+
+    } catch (error) {
+      console.error('OfferRepository.getVersionsByOfferId error:', error);
+      throw error;
     }
-    
-    return versions;
   }
 
   /**
@@ -349,31 +531,37 @@ class OfferRepository {
    * @returns {Promise<Object|null>} Версия или null
    */
   async getVersion(offerId, versionNumber) {
-    let version = this.versions.find(
-      v => v.offerId === offerId && v.version === versionNumber
-    );
-    
-    // Если версии нет, но запрашивается версия 1 и offer существует - создаем виртуальную
-    if (!version && versionNumber === 1) {
-      const offer = this.offers.find(o => o.id === offerId);
-      if (offer) {
-        version = {
-          id: `version_virtual_${offer.id}_1`,
-          offerId: offerId,
-          version: 1,
-          title: offer.title,
-          content: offer.content,
-          status: offer.status,
-          changeType: 'manual',
-          description: 'Первоначальная версия',
-          createdAt: offer.createdAt,
-          createdBy: offer.lastModifiedBy,
-          isPublished: offer.isPublished
-        };
+    try {
+      const query = `
+        SELECT * FROM offer_versions 
+        WHERE offer_id = $1 AND version = $2
+      `;
+
+      const result = await db.query(query, [offerId, versionNumber]);
+
+      if (result.rows.length === 0) {
+        return null;
       }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        offerId: row.offer_id,
+        version: row.version,
+        title: row.title,
+        content: row.content, // PostgreSQL JSONB already returns as object
+        status: row.status,
+        changeType: row.change_type,
+        description: row.description,
+        createdAt: row.created_at.toISOString(),
+        createdBy: row.created_by,
+        isPublished: row.is_published
+      };
+
+    } catch (error) {
+      console.error('OfferRepository.getVersion error:', error);
+      throw error;
     }
-    
-    return version || null;
   }
 
   /**
@@ -384,44 +572,28 @@ class OfferRepository {
    * @returns {Promise<boolean>} Успешность операции
    */
   async updateVersionPublishStatus(offerId, versionNumber, isPublished) {
-    // Если публикуем версию, сначала снимаем публикацию с других версий
-    if (isPublished) {
-      this.versions.forEach(v => {
-        if (v.offerId === offerId && v.isPublished) {
-          v.isPublished = false;
+    try {
+      return await db.transaction(async (client) => {
+        // Если публикуем версию, сначала снимаем публикацию с других версий
+        if (isPublished) {
+          await client.query(
+            'UPDATE offer_versions SET is_published = false WHERE offer_id = $1',
+            [offerId]
+          );
         }
+
+        const result = await client.query(
+          'UPDATE offer_versions SET is_published = $1 WHERE offer_id = $2 AND version = $3',
+          [isPublished, offerId, versionNumber]
+        );
+
+        return result.rowCount > 0;
       });
-    }
 
-    const versionIndex = this.versions.findIndex(
-      v => v.offerId === offerId && v.version === versionNumber
-    );
-    
-    if (versionIndex === -1) {
-      return false;
+    } catch (error) {
+      console.error('OfferRepository.updateVersionPublishStatus error:', error);
+      throw error;
     }
-
-    this.versions[versionIndex].isPublished = isPublished;
-    await this.saveData();
-    
-    return true;
-  }
-
-  /**
-   * Удалить все версии предложения
-   * @param {string} offerId - ID предложения
-   * @returns {Promise<boolean>} Успешность операции
-   */
-  async deleteVersionsByOfferId(offerId) {
-    const initialLength = this.versions.length;
-    this.versions = this.versions.filter(v => v.offerId !== offerId);
-    
-    if (this.versions.length < initialLength) {
-      await this.saveData();
-      return true;
-    }
-    
-    return false;
   }
 
   /**
@@ -432,25 +604,29 @@ class OfferRepository {
    * @returns {Promise<boolean>} Успешность операции
    */
   async updateVersionData(offerId, versionNumber, versionData) {
-    const versionIndex = this.versions.findIndex(v => 
-      v.offerId === offerId && v.version === versionNumber
-    );
-    
-    if (versionIndex === -1) {
-      return false;
+    try {
+      const query = `
+        UPDATE offer_versions 
+        SET title = $1, content = $2, status = $3
+        WHERE offer_id = $4 AND version = $5
+      `;
+
+      const params = [
+        versionData.title,
+        versionData.content, // PostgreSQL handles JSONB serialization
+        versionData.status,
+        offerId,
+        versionNumber
+      ];
+
+      const result = await db.query(query, params);
+      return result.rowCount > 0;
+
+    } catch (error) {
+      console.error('OfferRepository.updateVersionData error:', error);
+      throw error;
     }
-
-    this.versions[versionIndex] = {
-      ...this.versions[versionIndex],
-      title: versionData.title,
-      content: versionData.content,
-      status: versionData.status
-    };
-    
-    await this.saveData();
-    return true;
   }
-
 }
 
 module.exports = OfferRepository;
