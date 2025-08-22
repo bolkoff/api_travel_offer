@@ -328,7 +328,9 @@ class OfferRepository {
 
         const newTotalVersions = updateData.createVersion
           ? existingOffer.total_versions + 1
-          : existingOffer.total_versions;
+          : (updateData.currentVersion !== undefined && updateData.currentVersion > existingOffer.total_versions
+            ? updateData.currentVersion // Обновляем total_versions если currentVersion больше
+            : existingOffer.total_versions);
 
         // Обновляем offers
         const updateOfferQuery = `

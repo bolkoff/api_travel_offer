@@ -318,12 +318,12 @@ class OfferService {
       createdBy: userId
     });
 
-    // Обновляем текущую версию в основном offer
+    // Обновляем метаданные в основном offer (БЕЗ createVersion чтобы не создавать дубликат)
     await this.offerRepo.updateById(offerId, userId, {
       title: offer.title,
       content: offer.content,
       status: offer.status,
-      createVersion: true
+      currentVersion: newVersionNumber // Переключаемся на новую версию
     });
 
     return {
