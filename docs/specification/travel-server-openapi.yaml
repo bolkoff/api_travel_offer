@@ -1,0 +1,1136 @@
+openapi: 3.0.3
+info:
+  title: Travel Offers Management API
+  description: |
+    Универсальный REST API для управления предложениями (offers) с поддержкой версионирования, 
+    управления конфликтами и публикации. Сервер агностичен к структуре данных предложений.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@travel-offers.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.travel-offers.com/v1
+    description: Production server
+  - url: https://staging-api.travel-offers.com/v1
+    description: Staging server
+  - url: http://localhost:3000/api
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  # Authentication
+  /auth/token:
+    post:
+      tags:
+        - Authentication
+      summary: Получить токен аутентификации
+      description: Аутентификация пользователя и получение JWT токена
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Offers Management
+  /offers:
+    get:
+      tags:
+        - Offers
+      summary: Получить список предложений
+      description: Возвращает список предложений текущего пользователя с поддержкой фильтрации и пагинации
+      parameters:
+        - name: status
+          in: query
+          description: Фильтр по статусу
+          schema:
+            type: string
+            enum: [draft, published, archived]
+        - name: limit
+          in: query
+          description: Количество записей на страницу
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: orderBy
+          in: query
+          description: Поле для сортировки
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, title]
+            default: updatedAt
+        - name: order
+          in: query
+          description: Направление сортировки
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Список предложений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffersList'
+        '401':
+          description: Пользователь не аутентифицирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - Offers
+      summary: Создать новое предложение
+      description: Создает новое предложение для текущего пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOfferRequest'
+      responses:
+        '201':
+          description: Предложение успешно создано
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: ETag для optimistic locking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offer'
+        '400':
+          description: Некорректные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Пользователь не аутентифицирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /offers/{id}:
+    get:
+      tags:
+        - Offers
+      summary: Получить предложение по ID
+      description: Возвращает предложение с указанным ID
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: Данные предложения
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: ETag для optimistic locking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offer'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Пользователь не аутентифицирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Offers
+      summary: Обновить предложение (полная замена)
+      description: Полностью заменяет содержимое предложения
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - name: If-Match
+          in: header
+          description: ETag для optimistic locking
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOfferRequest'
+      responses:
+        '200':
+          description: Предложение успешно обновлено
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Новый ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offer'
+        '400':
+          description: Некорректные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Конфликт версий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictError'
+        '412':
+          description: Неверный ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      tags:
+        - Offers
+      summary: Частичное обновление предложения
+      description: Обновляет только указанные поля предложения
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - name: If-Match
+          in: header
+          description: ETag для optimistic locking
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchOfferRequest'
+      responses:
+        '200':
+          description: Предложение успешно обновлено
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Новый ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offer'
+        '400':
+          description: Некорректные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Конфликт версий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictError'
+        '412':
+          description: Неверный ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Offers
+      summary: Удалить предложение
+      description: Удаляет предложение и все его версии
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '204':
+          description: Предложение успешно удалено
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Пользователь не аутентифицирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Versions Management
+  /offers/{id}/versions:
+    get:
+      tags:
+        - Versions
+      summary: Получить список версий предложения
+      description: Возвращает список всех версий предложения
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: Список версий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionsList'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - Versions
+      summary: Создать новую версию
+      description: Создает снапшот текущего состояния предложения как новую версию
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVersionRequest'
+      responses:
+        '201':
+          description: Версия успешно создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /offers/{id}/versions/{version}:
+    get:
+      tags:
+        - Versions
+      summary: Получить конкретную версию
+      description: Возвращает снапшот предложения на момент указанной версии
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - $ref: '#/components/parameters/Version'
+      responses:
+        '200':
+          description: Данные версии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionContent'
+        '404':
+          description: Предложение или версия не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /offers/{id}/versions/{version}/restore:
+    post:
+      tags:
+        - Versions
+      summary: Восстановить версию
+      description: Делает указанную версию текущей (rollback)
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreVersionRequest'
+      responses:
+        '200':
+          description: Версия успешно восстановлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreVersionResponse'
+        '404':
+          description: Предложение или версия не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Publication Management
+  /offers/{id}/publication:
+    get:
+      tags:
+        - Publication
+      summary: Получить статус публикации
+      description: Возвращает информацию о текущем статусе публикации предложения
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: Статус публикации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationStatus'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - Publication
+      summary: Опубликовать предложение
+      description: Публикует указанную версию предложения на внешний сервер
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishRequest'
+      responses:
+        '200':
+          description: Предложение успешно опубликовано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResponse'
+        '400':
+          description: Некорректные параметры публикации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Publication
+      summary: Снять с публикации
+      description: Удаляет предложение с внешнего сервера
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: Предложение снято с публикации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnpublishResponse'
+        '404':
+          description: Предложение не найдено или не опубликовано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Conflict Resolution
+  /offers/{id}/resolve-conflict:
+    post:
+      tags:
+        - Conflict Resolution
+      summary: Разрешить конфликт версий
+      description: Разрешает конфликт, возникший при одновременном редактировании
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveConflictRequest'
+      responses:
+        '200':
+          description: Конфликт успешно разрешен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveConflictResponse'
+        '400':
+          description: Некорректные параметры разрешения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Предложение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Utility Endpoints
+  /health:
+    get:
+      tags:
+        - Utility
+      summary: Проверка здоровья сервера
+      description: Возвращает статус работоспособности сервера
+      security: []
+      responses:
+        '200':
+          description: Сервер работает нормально
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /stats/user:
+    get:
+      tags:
+        - Utility
+      summary: Статистика пользователя
+      description: Возвращает статистику активности текущего пользователя
+      responses:
+        '200':
+          description: Статистика пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserStats'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    OfferId:
+      name: id
+      in: path
+      required: true
+      description: Уникальный идентификатор предложения
+      schema:
+        type: string
+        pattern: '^[a-zA-Z0-9_-]+$'
+        example: 'offer_123'
+
+    Version:
+      name: version
+      in: path
+      required: true
+      description: Номер версии
+      schema:
+        type: integer
+        minimum: 1
+        example: 3
+
+  schemas:
+    # Authentication Schemas
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          example: 'john_doe'
+        password:
+          type: string
+          minLength: 6
+          example: 'password123'
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT токен
+          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'user_456'
+        username:
+          type: string
+          example: 'john_doe'
+
+    # Offer Schemas
+    Offer:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор предложения
+          example: 'offer_123'
+        title:
+          type: string
+          description: Заголовок предложения
+          minLength: 1
+          maxLength: 200
+          example: 'Тур в Турцию'
+        content:
+          type: object
+          description: Содержимое предложения (любая JSON структура)
+          additionalProperties: true
+        status:
+          type: string
+          enum: [draft, published, archived]
+          description: Статус предложения
+          example: 'draft'
+        version:
+          type: integer
+          minimum: 1
+          description: Текущий номер версии
+          example: 3
+        createdAt:
+          type: string
+          format: date-time
+          description: Время создания
+          example: '2024-01-01T12:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          description: Время последнего обновления
+          example: '2024-01-15T14:30:00Z'
+        lastModifiedBy:
+          type: string
+          description: ID пользователя, который последним изменил предложение
+          example: 'user_456'
+        eTag:
+          type: string
+          description: ETag для optimistic locking
+          example: 'W/"abc123"'
+        hasUnpublishedChanges:
+          type: boolean
+          description: Есть ли изменения после последней публикации
+          example: true
+        versionInfo:
+          $ref: '#/components/schemas/VersionInfo'
+
+    CreateOfferRequest:
+      type: object
+      required:
+        - title
+        - content
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 'Новое предложение'
+        content:
+          type: object
+          additionalProperties: true
+          example: {}
+        status:
+          type: string
+          enum: [draft, published, archived]
+          default: draft
+
+    UpdateOfferRequest:
+      type: object
+      required:
+        - title
+        - content
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 'Обновленное предложение'
+        content:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [draft, published, archived]
+        createVersion:
+          type: boolean
+          description: Создать версию при сохранении
+          default: false
+
+    PatchOfferRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        content:
+          type: object
+          additionalProperties: true
+          description: Будет объединено с существующим содержимым
+        autoSave:
+          type: boolean
+          description: Создать авто-версию
+          default: false
+
+    OffersList:
+      type: object
+      properties:
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferSummary'
+        total:
+          type: integer
+          description: Общее количество предложений
+          example: 42
+        limit:
+          type: integer
+          description: Размер страницы
+          example: 50
+        offset:
+          type: integer
+          description: Смещение
+          example: 0
+
+    OfferSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'offer_123'
+        title:
+          type: string
+          example: 'Тур в Турцию'
+        status:
+          type: string
+          enum: [draft, published, archived]
+          example: 'draft'
+        version:
+          type: integer
+          example: 3
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-01T12:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T14:30:00Z'
+        hasUnpublishedChanges:
+          type: boolean
+          example: true
+
+    # Version Schemas
+    VersionInfo:
+      type: object
+      description: Информация о текущей версии предложения
+      properties:
+        current:
+          type: integer
+          minimum: 1
+          description: Номер текущей версии
+          example: 3
+        total:
+          type: integer
+          minimum: 1
+          description: Общее количество версий
+          example: 5
+        isLatest:
+          type: boolean
+          description: Является ли текущая версия последней
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Время создания предложения
+          example: '2024-01-01T12:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          description: Время последнего обновления
+          example: '2024-01-15T14:30:00Z'
+        lastModifiedBy:
+          type: string
+          description: ID пользователя, который последним изменил предложение
+          example: 'user_456'
+        hasUnpublishedChanges:
+          type: boolean
+          description: Есть ли изменения после последней публикации
+          example: true
+
+    Version:
+      type: object
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          example: 3
+        changeType:
+          type: string
+          enum: [manual, auto]
+          example: 'manual'
+        description:
+          type: string
+          maxLength: 500
+          example: 'Добавлены новые туры'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T14:30:00Z'
+        createdBy:
+          type: string
+          example: 'user_456'
+        isCurrent:
+          type: boolean
+          example: true
+
+    VersionsList:
+      type: object
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Version'
+
+    VersionContent:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'offer_123'
+        version:
+          type: integer
+          example: 2
+        title:
+          type: string
+          example: 'Старый заголовок'
+        content:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-10T10:15:00Z'
+        changeType:
+          type: string
+          enum: [manual, auto]
+
+    CreateVersionRequest:
+      type: object
+      required:
+        - description
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 'Описание изменений'
+        changeType:
+          type: string
+          enum: [manual, auto]
+          default: manual
+
+    RestoreVersionRequest:
+      type: object
+      properties:
+        createBackupVersion:
+          type: boolean
+          description: Создать backup версию с текущими данными
+          default: true
+
+    RestoreVersionResponse:
+      type: object
+      properties:
+        restoredToVersion:
+          type: integer
+          example: 2
+        newCurrentVersion:
+          type: integer
+          description: Номер новой версии (если создали backup)
+          example: 5
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T16:00:00Z'
+
+    # Publication Schemas
+    PublicationStatus:
+      type: object
+      properties:
+        isPublished:
+          type: boolean
+          example: true
+        currentPublication:
+          $ref: '#/components/schemas/Publication'
+        hasUnpublishedChanges:
+          type: boolean
+          description: Есть ли изменения после публикации
+          example: true
+
+    Publication:
+      type: object
+      properties:
+        version:
+          type: integer
+          example: 2
+        publishedAt:
+          type: string
+          format: date-time
+          example: '2024-01-10T12:00:00Z'
+        publicUrl:
+          type: string
+          format: uri
+          example: 'https://external-site.com/offers/abc123'
+
+    PublishRequest:
+      type: object
+      properties:
+        version:
+          type: integer
+          description: Версия для публикации (по умолчанию текущая)
+          minimum: 1
+        unpublishPrevious:
+          type: boolean
+          description: Снять с публикации предыдущую версию
+          default: true
+
+    PublishResponse:
+      type: object
+      properties:
+        published:
+          type: boolean
+          example: true
+        version:
+          type: integer
+          example: 3
+        publicUrl:
+          type: string
+          format: uri
+          example: 'https://external-site.com/offers/abc123'
+        publishedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T16:30:00Z'
+
+    UnpublishResponse:
+      type: object
+      properties:
+        unpublished:
+          type: boolean
+          example: true
+        unpublishedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T17:00:00Z'
+
+    # Conflict Resolution Schemas
+    ConflictError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: 'conflict'
+        message:
+          type: string
+          example: 'Offer was modified by another user'
+        conflictDetails:
+          $ref: '#/components/schemas/ConflictDetails'
+        resolutionOptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolutionOption'
+
+    ConflictDetails:
+      type: object
+      properties:
+        lastModifiedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T14:45:00Z'
+        lastModifiedBy:
+          type: string
+          example: 'user_789'
+        currentVersion:
+          type: integer
+          example: 4
+        yourVersion:
+          type: integer
+          example: 3
+
+    ResolutionOption:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [overwrite, create_version, view_changes]
+          example: 'overwrite'
+        description:
+          type: string
+          example: 'Перезаписать изменения другого пользователя'
+
+    ResolveConflictRequest:
+      type: object
+      required:
+        - resolution
+        - content
+        - conflictVersion
+      properties:
+        resolution:
+          type: string
+          enum: [overwrite, create_version]
+          example: 'create_version'
+        content:
+          type: object
+          additionalProperties: true
+          description: Новые данные для сохранения
+        conflictVersion:
+          type: integer
+          description: Версия, с которой был конфликт
+          example: 3
+        versionDescription:
+          type: string
+          description: Описание версии (если создаем новую)
+          maxLength: 500
+          example: 'Разрешение конфликта'
+
+    ResolveConflictResponse:
+      type: object
+      properties:
+        resolved:
+          type: boolean
+          example: true
+        action:
+          type: string
+          enum: [overwrite, create_version]
+          example: 'create_version'
+        newVersion:
+          type: integer
+          description: Номер новой версии (если создали)
+          example: 5
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T17:30:00Z'
+
+    # Utility Schemas
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          example: 'healthy'
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T18:00:00Z'
+        version:
+          type: string
+          example: '1.0.0'
+
+    UserStats:
+      type: object
+      properties:
+        totalOffers:
+          type: integer
+          example: 15
+        draftOffers:
+          type: integer
+          example: 8
+        publishedOffers:
+          type: integer
+          example: 5
+        archivedOffers:
+          type: integer
+          example: 2
+        lastActivity:
+          type: string
+          format: date-time
+          example: '2024-01-15T17:30:00Z'
+
+    # Error Schemas
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+          example: 'validation_error'
+        message:
+          type: string
+          description: Описание ошибки
+          example: 'Некорректные данные запроса'
+        details:
+          type: object
+          additionalProperties: true
+          description: Дополнительная информация об ошибке
+
+tags:
+  - name: Authentication
+    description: Аутентификация и авторизация
+  - name: Offers
+    description: Управление предложениями
+  - name: Versions
+    description: Версионирование предложений
+  - name: Publication
+    description: Публикация предложений
+  - name: Conflict Resolution
+    description: Разрешение конфликтов
+  - name: Utility
+    description: Утилитарные операции

@@ -1,0 +1,26 @@
+services:
+  redis:
+    image: redis:7
+    restart: always
+    container_name: redis
+    expose:
+      - "6379"
+    networks:
+      - d_net
+
+  caddy:
+    image: caddy:2.7-alpine
+    restart: always
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile
+    networks:
+      - d_net
+    
+
+networks:
+  d_net:
+    external: true

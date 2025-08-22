@@ -1,165 +1,137 @@
 const express = require('express');
-const N8nService = require('./services/n8nService');
-const HtmlAnalyzer = require('./services/htmlAnalyzer');
 
-const app = express();
-const port = process.env.PORT || 3000;
+// Импорты сервисов и контроллеров
+const AuthService = require('./services/AuthService');
+const OfferService = require('./services/OfferService');
+const OfferRepository = require('./repositories/OfferRepository');
+const OfferController = require('./controllers/OfferController');
 
-// Инициализация сервисов
-const n8nService = new N8nService();
-const htmlAnalyzer = new HtmlAnalyzer();
-htmlAnalyzer.setN8nService(n8nService);
+class App {
+  constructor() {
+    this.app = express();
+    this.setupMiddleware();
+    this.setupDependencies();
+    this.setupRoutes();
+    this.setupErrorHandling();
+  }
 
-// Middleware для парсинга JSON
-app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит для больших HTML
-
-// Middleware для логирования
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
-
-// Базовый маршрут
-app.get('/', (req, res) => {
-  res.status(404).json({
-    message: 'Маршрут не найден',
-    path: req.originalUrl
-  });
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV
-  });
-});
-
-// Тестовый маршрут для API с проверкой n8n
-app.get('/api/test', async (req, res) => {
-  try {
-    // Проверяем доступность n8n
-    const n8nHealth = await n8nService.checkHealth();
+  setupMiddleware() {
+    // Парсинг JSON
+    this.app.use(express.json({ limit: '10mb' }));
     
-    res.json({
-      message: 'API тестовый endpoint работает!',
-      data: {
-        redis_url: process.env.REDIS_URL || 'не настроен',
-        node_env: process.env.NODE_ENV,
-        port: port,
-        n8n: {
-          config: n8nService.getConfig(),
-          health: n8nHealth
-        }
+    // CORS для разработки
+    this.app.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, If-Match');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+      } else {
+        next();
       }
     });
-  } catch (error) {
-    console.error('Ошибка в /api/test:', error);
-    res.status(500).json({
-      error: 'Ошибка при выполнении теста',
-      message: error.message
+
+    // Логирование запросов
+    this.app.use((req, res, next) => {
+      const timestamp = new Date().toISOString();
+      console.log(`${timestamp} ${req.method} ${req.path}`, req.query, req.headers);
+      next();
     });
   }
-});
 
-// Анализ HTML элементов
-app.post('/api/analyze', async (req, res) => {
-  try {
-    const { html_elements, mode } = req.body;
+  setupDependencies() {
+    // Инициализация слоев по принципу DI
+    this.offerRepository = new OfferRepository();
+    this.authService = new AuthService();
+    this.offerService = new OfferService(this.offerRepository);
+    
+    // Контроллеры
+    this.offerController = new OfferController(this.offerService, this.authService);
+  }
 
-    // Валидация входных данных
-    if (!html_elements || !Array.isArray(html_elements)) {
-      return res.status(400).json({
-        error: 'Неверный формат данных',
-        message: 'html_elements должен быть массивом'
+  setupRoutes() {
+    // Health check
+    this.app.get('/api/health', (req, res) => {
+      res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
       });
-    }
+    });
 
-    if (html_elements.length === 0) {
-      return res.status(400).json({
-        error: 'Пустой массив',
-        message: 'html_elements не может быть пустым'
+    // Offers routes
+    this.app.get('/api/offers', this.offerController.getOffers.bind(this.offerController));
+    this.app.post('/api/offers', this.offerController.createOffer.bind(this.offerController));
+    this.app.get('/api/offers/:id', this.offerController.getOfferById.bind(this.offerController));
+    this.app.put('/api/offers/:id', this.offerController.updateOffer.bind(this.offerController));
+    this.app.delete('/api/offers/:id', this.offerController.deleteOffer.bind(this.offerController));
+
+    // Version management routes
+    this.app.get('/api/offers/:id/versions', this.offerController.getVersions.bind(this.offerController));
+    this.app.post('/api/offers/:id/versions', this.offerController.createVersion.bind(this.offerController));
+    this.app.get('/api/offers/:id/versions/:version', this.offerController.getVersion.bind(this.offerController));
+    this.app.post('/api/offers/:id/versions/:version/restore', this.offerController.restoreVersion.bind(this.offerController));
+    this.app.post('/api/offers/:id/versions/:version/switch', this.offerController.switchToVersion.bind(this.offerController));
+
+    // Мок эндпоинт для получения токена (для тестирования)
+    this.app.post('/api/auth/token', async (req, res, next) => {
+      try {
+        const { username } = req.body;
+        
+        if (!username) {
+          return res.status(400).json({
+            error: 'validation_error',
+            message: 'Username is required'
+          });
+        }
+
+        const result = await this.authService.getToken(username);
+        res.json(result);
+      } catch (error) {
+        if (error.message === 'User not found') {
+          return res.status(401).json({
+            error: 'user_not_found',
+            message: 'User not found'
+          });
+        }
+        next(error);
+      }
+    });
+
+    // 404 для неизвестных путей
+    this.app.use('*', (req, res) => {
+      res.status(404).json({
+        error: 'not_found',
+        message: 'Endpoint not found'
       });
-    }
+    });
+  }
 
-    // Проверяем структуру элементов - только content
-    for (let i = 0; i < html_elements.length; i++) {
-      const element = html_elements[i];
-      if (!element.content) {
+  setupErrorHandling() {
+    // Глобальная обработка ошибок
+    this.app.use((error, req, res, next) => {
+      console.error('Error:', error);
+
+      // Валидационные ошибки
+      if (error.message.includes('Invalid')) {
         return res.status(400).json({
-          error: 'Неверная структура элемента',
-          message: `Элемент ${i} должен содержать поле content`
+          error: 'validation_error',
+          message: error.message
         });
       }
-    }
 
-    // Валидация режима анализа
-    if (mode && !['html', 'markdown'].includes(mode)) {
-      return res.status(400).json({
-        error: 'Неверный режим анализа',
-        message: 'mode должен быть "html" или "markdown"'
+      // Общие ошибки сервера
+      res.status(500).json({
+        error: 'internal_server_error',
+        message: 'An unexpected error occurred'
       });
-    }
-
-    console.log(`Начинаем анализ ${html_elements.length} HTML элементов`);
-    console.log(`Режим анализа: ${mode || 'html'}`);
-
-    // Выполняем анализ
-    const analysisResult = await htmlAnalyzer.analyzeHtmlElements(html_elements, { mode });
-
-    res.json({
-      success: true,
-      message: 'Анализ завершен',
-      ...analysisResult
-    });
-
-  } catch (error) {
-    console.error('Ошибка в /api/analyze:', error);
-    res.status(500).json({
-      error: 'Ошибка при анализе HTML',
-      message: error.message
     });
   }
-});
 
-// Обработка ошибок
-app.use((err, req, res, next) => {
-  console.error('Ошибка:', err);
-  res.status(500).json({
-    error: 'Внутренняя ошибка сервера',
-    message: err.message
-  });
-});
+  getExpressApp() {
+    return this.app;
+  }
+}
 
-// Обработка 404
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Маршрут не найден',
-    path: req.originalUrl
-  });
-});
-
-// Запуск сервера
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Сервер запущен на порту ${port}`);
-  console.log(` Health check: http://localhost:${port}/api/health`);
-  console.log(` Тестовый endpoint: http://localhost:${port}/api/test`);
-  console.log(`🔍 Анализ HTML: POST http://localhost:${port}/api/analyze`);
-  console.log(`🔗 Тестовый webhook: POST http://localhost:${port}/api/n8n/test-webhook`);
-  console.log(` N8N webhooks: http://localhost:${port}/api/n8n/webhooks`);
-  console.log(`🌍 Окружение: ${process.env.NODE_ENV || 'development'}`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Получен SIGTERM, завершаем работу...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('Получен SIGINT, завершаем работу...');
-  process.exit(0);
-});
+module.exports = App;

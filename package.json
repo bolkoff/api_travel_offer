@@ -1,10 +1,10 @@
 {
     "name": "api-travel-offer",
     "version": "1.0.0",
-    "main": "src/app.js",
+    "main": "src/server.js",
     "scripts": {
-      "start": "node src/app.js",
-      "dev": "nodemon src/app.js",
+      "start": "node src/server.js",
+      "dev": "nodemon src/server.js",
       "healthcheck": "node src/healthcheck.js"
     },
     "dependencies": {

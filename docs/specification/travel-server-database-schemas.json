@@ -1,0 +1,783 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Travel Offers Server Database Schemas",
+  "description": "JSON Schema описания для всех таблиц/коллекций базы данных",
+  
+  "definitions": {
+    "User": {
+      "type": "object",
+      "description": "Пользователь системы",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор пользователя"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 50,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Имя пользователя"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Email пользователя"
+        },
+        "passwordHash": {
+          "type": "string",
+          "description": "Хэш пароля"
+        },
+        "isActive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Активен ли пользователь"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время создания аккаунта"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время последнего входа"
+        },
+        "preferences": {
+          "type": "object",
+          "description": "Настройки пользователя",
+          "properties": {
+            "language": {
+              "type": "string",
+              "enum": ["en", "ru"],
+              "default": "en"
+            },
+            "timezone": {
+              "type": "string",
+              "default": "UTC"
+            },
+            "autoSaveInterval": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 30000,
+              "default": 3000,
+              "description": "Интервал автосохранения в миллисекундах"
+            }
+          }
+        }
+      },
+      "required": ["_id", "username", "email", "passwordHash", "createdAt"],
+      "additionalProperties": false
+    },
+
+    "Offer": {
+      "type": "object",
+      "description": "Предложение пользователя",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^offer_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор предложения"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID владельца предложения"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Заголовок предложения"
+        },
+        "content": {
+          "type": "object",
+          "description": "Содержимое предложения (любая JSON структура)",
+          "additionalProperties": true
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "published", "archived"],
+          "default": "draft",
+          "description": "Статус предложения"
+        },
+        "currentVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Номер текущей версии"
+        },
+        "totalVersions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Общее количество версий"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время создания"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время последнего обновления"
+        },
+        "lastModifiedBy": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID пользователя, который последним изменил предложение"
+        },
+        "eTag": {
+          "type": "string",
+          "description": "ETag для optimistic locking (hash содержимого)"
+        },
+        "isPublished": {
+          "type": "boolean",
+          "default": false,
+          "description": "Опубликовано ли предложение"
+        },
+        "publishedVersion": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Версия, которая опубликована (null если не опубликовано)"
+        },
+        "publishedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Время публикации"
+        },
+        "publicUrl": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "URL опубликованного предложения"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Дополнительные метаданные",
+          "properties": {
+            "hasUnpublishedChanges": {
+              "type": "boolean",
+              "description": "Есть ли изменения после последней публикации"
+            },
+            "lastAutoSaveAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Время последнего автосохранения"
+            },
+            "size": {
+              "type": "integer",
+              "description": "Размер содержимого в байтах"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "description": "Теги для классификации"
+            }
+          }
+        }
+      },
+      "required": ["_id", "userId", "title", "content", "status", "currentVersion", "totalVersions", "createdAt", "updatedAt", "lastModifiedBy", "eTag"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"userId": 1, "status": 1, "updatedAt": -1}},
+        {"keys": {"userId": 1, "createdAt": -1}},
+        {"keys": {"eTag": 1}},
+        {"keys": {"isPublished": 1, "publishedAt": -1}}
+      ]
+    },
+
+    "OfferVersion": {
+      "type": "object",
+      "description": "Версия предложения (снапшот)",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^version_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор версии"
+        },
+        "offerId": {
+          "type": "string",
+          "pattern": "^offer_[a-zA-Z0-9_-]+$",
+          "description": "ID предложения"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID владельца предложения"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Номер версии"
+        },
+        "title": {
+          "type": "string",
+          "description": "Заголовок на момент версии"
+        },
+        "content": {
+          "type": "object",
+          "description": "Снапшот содержимого на момент версии",
+          "additionalProperties": true
+        },
+        "changeType": {
+          "type": "string",
+          "enum": ["manual", "auto"],
+          "description": "Тип создания версии"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Описание изменений"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время создания версии"
+        },
+        "createdBy": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID создателя версии"
+        },
+        "size": {
+          "type": "integer",
+          "description": "Размер содержимого версии в байтах"
+        },
+        "checksum": {
+          "type": "string",
+          "description": "Контрольная сумма содержимого"
+        },
+        "previousVersion": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Номер предыдущей версии"
+        },
+        "changes": {
+          "type": "object",
+          "description": "Дифф изменений от предыдущей версии",
+          "properties": {
+            "added": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Добавленные поля"
+            },
+            "modified": {
+              "type": "array", 
+              "items": {"type": "string"},
+              "description": "Измененные поля"
+            },
+            "removed": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Удаленные поля"
+            }
+          }
+        }
+      },
+      "required": ["_id", "offerId", "userId", "version", "title", "content", "changeType", "createdAt", "createdBy"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"offerId": 1, "version": -1}},
+        {"keys": {"userId": 1, "createdAt": -1}},
+        {"keys": {"offerId": 1, "changeType": 1}}
+      ]
+    },
+
+    "Publication": {
+      "type": "object",
+      "description": "Публикация предложения на внешний сервер",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^pub_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор публикации"
+        },
+        "offerId": {
+          "type": "string",
+          "pattern": "^offer_[a-zA-Z0-9_-]+$",
+          "description": "ID предложения"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID владельца"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Версия предложения для публикации"
+        },
+        "publicUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL опубликованного предложения"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive", "pending", "failed"],
+          "description": "Статус публикации"
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время публикации"
+        },
+        "publishedBy": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID пользователя, который опубликовал"
+        },
+        "unpublishedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Время снятия с публикации"
+        },
+        "externalId": {
+          "type": "string",
+          "description": "ID на внешнем сервере"
+        },
+        "externalProvider": {
+          "type": "string",
+          "description": "Провайдер публикации"
+        },
+        "publishConfig": {
+          "type": "object",
+          "description": "Конфигурация публикации",
+          "properties": {
+            "domain": {"type": "string"},
+            "template": {"type": "string"},
+            "seo": {
+              "type": "object",
+              "properties": {
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "keywords": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        },
+        "statistics": {
+          "type": "object",
+          "description": "Статистика публикации",
+          "properties": {
+            "views": {"type": "integer", "default": 0},
+            "lastViewedAt": {"type": "string", "format": "date-time"},
+            "clicks": {"type": "integer", "default": 0}
+          }
+        }
+      },
+      "required": ["_id", "offerId", "userId", "version", "publicUrl", "status", "publishedAt", "publishedBy"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"offerId": 1, "status": 1}},
+        {"keys": {"userId": 1, "publishedAt": -1}},
+        {"keys": {"publicUrl": 1}, "unique": true},
+        {"keys": {"externalId": 1, "externalProvider": 1}}
+      ]
+    },
+
+    "Session": {
+      "type": "object",
+      "description": "Пользовательская сессия",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "description": "ID сессии"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID пользователя"
+        },
+        "token": {
+          "type": "string",
+          "description": "JWT токен"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время создания сессии"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время истечения сессии"
+        },
+        "lastActivityAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время последней активности"
+        },
+        "isActive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Активна ли сессия"
+        },
+        "deviceInfo": {
+          "type": "object",
+          "description": "Информация об устройстве",
+          "properties": {
+            "userAgent": {"type": "string"},
+            "ip": {"type": "string"},
+            "platform": {"type": "string"},
+            "browser": {"type": "string"}
+          }
+        }
+      },
+      "required": ["_id", "userId", "token", "createdAt", "expiresAt"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"token": 1}, "unique": true},
+        {"keys": {"userId": 1, "isActive": 1}},
+        {"keys": {"expiresAt": 1}, "expireAfterSeconds": 0}
+      ]
+    },
+
+    "AuditLog": {
+      "type": "object",
+      "description": "Журнал аудита действий",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^audit_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор записи"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID пользователя"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "offer_create", "offer_update", "offer_delete",
+            "version_create", "version_restore",
+            "publish", "unpublish",
+            "conflict_resolve",
+            "user_login", "user_logout"
+          ],
+          "description": "Тип действия"
+        },
+        "entityType": {
+          "type": "string",
+          "enum": ["offer", "version", "publication", "user"],
+          "description": "Тип сущности"
+        },
+        "entityId": {
+          "type": "string",
+          "description": "ID сущности"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время действия"
+        },
+        "details": {
+          "type": "object",
+          "description": "Детали действия",
+          "properties": {
+            "before": {"type": "object", "description": "Состояние до"},
+            "after": {"type": "object", "description": "Состояние после"},
+            "changes": {"type": "array", "items": {"type": "string"}},
+            "reason": {"type": "string", "description": "Причина действия"}
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Метаданные запроса",
+          "properties": {
+            "ip": {"type": "string"},
+            "userAgent": {"type": "string"},
+            "requestId": {"type": "string"},
+            "sessionId": {"type": "string"}
+          }
+        }
+      },
+      "required": ["_id", "userId", "action", "entityType", "entityId", "timestamp"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"userId": 1, "timestamp": -1}},
+        {"keys": {"entityType": 1, "entityId": 1, "timestamp": -1}},
+        {"keys": {"action": 1, "timestamp": -1}},
+        {"keys": {"timestamp": -1}}
+      ]
+    },
+
+    "ConflictResolution": {
+      "type": "object",
+      "description": "Записи разрешения конфликтов",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "pattern": "^conflict_[a-zA-Z0-9_-]+$",
+          "description": "Уникальный идентификатор конфликта"
+        },
+        "offerId": {
+          "type": "string",
+          "pattern": "^offer_[a-zA-Z0-9_-]+$",
+          "description": "ID предложения"
+        },
+        "conflictedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Версия, с которой был конфликт"
+        },
+        "user1Id": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID первого пользователя"
+        },
+        "user2Id": {
+          "type": "string",
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID второго пользователя"
+        },
+        "detectedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Время обнаружения конфликта"
+        },
+        "resolvedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Время разрешения конфликта"
+        },
+        "resolvedBy": {
+          "type": ["string", "null"],
+          "pattern": "^user_[a-zA-Z0-9_-]+$",
+          "description": "ID пользователя, разрешившего конфликт"
+        },
+        "resolutionType": {
+          "type": ["string", "null"],
+          "enum": ["overwrite", "create_version", "manual_merge"],
+          "description": "Тип разрешения конфликта"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "resolved", "ignored"],
+          "default": "pending",
+          "description": "Статус конфликта"
+        },
+        "conflictDetails": {
+          "type": "object",
+          "description": "Детали конфликта",
+          "properties": {
+            "conflictedFields": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Поля с конфликтами"
+            },
+            "user1Changes": {"type": "object"},
+            "user2Changes": {"type": "object"},
+            "baseVersion": {"type": "object"}
+          }
+        },
+        "resolutionData": {
+          "type": ["object", "null"],
+          "description": "Данные разрешения",
+          "properties": {
+            "resultingVersion": {"type": "integer"},
+            "mergedContent": {"type": "object"},
+            "notes": {"type": "string"}
+          }
+        }
+      },
+      "required": ["_id", "offerId", "conflictedVersion", "user1Id", "user2Id", "detectedAt", "status"],
+      "additionalProperties": false,
+      "indexes": [
+        {"keys": {"offerId": 1, "status": 1}},
+        {"keys": {"user1Id": 1, "detectedAt": -1}},
+        {"keys": {"user2Id": 1, "detectedAt": -1}},
+        {"keys": {"status": 1, "detectedAt": -1}}
+      ]
+    }
+  },
+
+  "database_design": {
+    "mongodb": {
+      "collections": [
+        {
+          "name": "users",
+          "schema": {"$ref": "#/definitions/User"},
+          "shardKey": {"_id": 1}
+        },
+        {
+          "name": "offers", 
+          "schema": {"$ref": "#/definitions/Offer"},
+          "shardKey": {"userId": 1}
+        },
+        {
+          "name": "offer_versions",
+          "schema": {"$ref": "#/definitions/OfferVersion"},
+          "shardKey": {"offerId": 1}
+        },
+        {
+          "name": "publications",
+          "schema": {"$ref": "#/definitions/Publication"},
+          "shardKey": {"userId": 1}
+        },
+        {
+          "name": "sessions",
+          "schema": {"$ref": "#/definitions/Session"},
+          "ttl": {"field": "expiresAt", "seconds": 0}
+        },
+        {
+          "name": "audit_logs",
+          "schema": {"$ref": "#/definitions/AuditLog"},
+          "shardKey": {"userId": 1, "timestamp": 1}
+        },
+        {
+          "name": "conflict_resolutions",
+          "schema": {"$ref": "#/definitions/ConflictResolution"},
+          "shardKey": {"offerId": 1}
+        }
+      ],
+      "estimated_size": {
+        "users": "100 MB",
+        "offers": "1 GB", 
+        "offer_versions": "5 GB",
+        "publications": "200 MB",
+        "sessions": "50 MB",
+        "audit_logs": "2 GB",
+        "conflict_resolutions": "100 MB"
+      }
+    },
+
+    "postgresql": {
+      "tables": [
+        {
+          "name": "users",
+          "schema": {"$ref": "#/definitions/User"},
+          "primary_key": "_id",
+          "constraints": [
+            "UNIQUE(username)",
+            "UNIQUE(email)"
+          ]
+        },
+        {
+          "name": "offers",
+          "schema": {"$ref": "#/definitions/Offer"}, 
+          "primary_key": "_id",
+          "foreign_keys": [
+            "userId REFERENCES users(_id) ON DELETE CASCADE"
+          ],
+          "partitioning": "PARTITION BY HASH(userId)"
+        },
+        {
+          "name": "offer_versions",
+          "schema": {"$ref": "#/definitions/OfferVersion"},
+          "primary_key": "_id",
+          "foreign_keys": [
+            "offerId REFERENCES offers(_id) ON DELETE CASCADE",
+            "userId REFERENCES users(_id) ON DELETE CASCADE"
+          ],
+          "constraints": [
+            "UNIQUE(offerId, version)"
+          ]
+        },
+        {
+          "name": "publications",
+          "schema": {"$ref": "#/definitions/Publication"},
+          "primary_key": "_id",
+          "foreign_keys": [
+            "offerId REFERENCES offers(_id) ON DELETE CASCADE",
+            "userId REFERENCES users(_id) ON DELETE CASCADE"
+          ],
+          "constraints": [
+            "UNIQUE(publicUrl)"
+          ]
+        },
+        {
+          "name": "sessions",
+          "schema": {"$ref": "#/definitions/Session"},
+          "primary_key": "_id",
+          "foreign_keys": [
+            "userId REFERENCES users(_id) ON DELETE CASCADE"
+          ],
+          "constraints": [
+            "UNIQUE(token)"
+          ]
+        },
+        {
+          "name": "audit_logs",
+          "schema": {"$ref": "#/definitions/AuditLog"},
+          "primary_key": "_id",
+          "foreign_keys": [
+            "userId REFERENCES users(_id) ON DELETE SET NULL"
+          ],
+          "partitioning": "PARTITION BY RANGE(timestamp)"
+        },
+        {
+          "name": "conflict_resolutions",
+          "schema": {"$ref": "#/definitions/ConflictResolution"},
+          "primary_key": "_id",
+          "foreign_keys": [
+            "offerId REFERENCES offers(_id) ON DELETE CASCADE",
+            "user1Id REFERENCES users(_id) ON DELETE CASCADE",
+            "user2Id REFERENCES users(_id) ON DELETE CASCADE"
+          ]
+        }
+      ]
+    }
+  },
+
+  "data_migration": {
+    "from_extension": {
+      "offers_data": {
+        "source": "chrome.storage.local",
+        "target_collection": "offers",
+        "transformations": [
+          "Generate userId from extension user data",
+          "Convert offer_id to _id with 'offer_' prefix",
+          "Add currentVersion = 1 and totalVersions = 1",
+          "Generate eTag from content hash",
+          "Set default metadata fields"
+        ]
+      },
+      "versions": {
+        "source": "offerVersions from OffersService",
+        "target_collection": "offer_versions",
+        "transformations": [
+          "Generate _id with 'version_' prefix",
+          "Map offerId and version number",
+          "Calculate content size and checksum",
+          "Generate change diff from previous version"
+        ]
+      }
+    }
+  },
+
+  "performance_considerations": {
+    "indexing_strategy": {
+      "offers": [
+        "Primary access by userId + status",
+        "Frequent sorting by updatedAt",
+        "ETag lookup for concurrency control"
+      ],
+      "offer_versions": [
+        "Access by offerId + version number",
+        "Historical queries by createdAt",
+        "Cleanup queries by size/age"
+      ],
+      "audit_logs": [
+        "Time-series access pattern",
+        "Partition by time ranges",
+        "Automatic cleanup of old records"
+      ]
+    },
+    "query_patterns": [
+      "Get user offers: O(log n) with userId index",
+      "Get offer versions: O(log n) with offerId index", 
+      "Conflict detection: O(1) with ETag comparison",
+      "Publication status: O(1) with offer foreign key"
+    ],
+    "scalability": {
+      "horizontal_scaling": "Shard by userId for offers and versions",
+      "vertical_scaling": "Content field can be compressed",
+      "archival_strategy": "Move old versions to cold storage after 1 year"
+    }
+  }
+}

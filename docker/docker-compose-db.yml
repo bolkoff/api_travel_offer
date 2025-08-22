@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: apache/age:release_PG15_1.5.0
+    container_name: db
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass_secret
+      POSTGRES_DB: element_db
+    volumes:
+      - /home/boot/db/data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - d_net
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: vladimir@element.travel
+      PGADMIN_DEFAULT_PASSWORD: jOz2!^ZLeY61U5
+      # Основные настройки CSRF
+      PGADMIN_CONFIG_WTF_CSRF_ENABLED: 'False'
+      PGADMIN_CONFIG_WTF_CSRF_TIME_LIMIT: 'None'
+      # Расширенные настройки сессии
+      PGADMIN_CONFIG_SESSION_COOKIE_HTTPONLY: 'True'
+      PGADMIN_CONFIG_SESSION_COOKIE_SECURE: 'False'
+      PGADMIN_CONFIG_SESSION_COOKIE_SAMESITE: "'Lax'"
+      PGADMIN_CONFIG_PERMANENT_SESSION_LIFETIME: '86400'
+      # Отключение дополнительных проверок
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'False'
+      PGADMIN_CONFIG_AUTO_DISCOVERY_ENABLED: 'False'
+      # Настройки подключения к БД
+      PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: 'False'
+      PGADMIN_CONFIG_MAIL_DEBUG: 'False'
+      GUNICORN_TIMEOUT: '60'
+    volumes:
+      - /home/boot/db/pgadmin_data:/var/lib/pgadmin
+    expose:
+      - "80"
+    networks:
+      - d_net
+    user: "5050:5050"
+
+volumes:
+  pg_data:
+  pgadmin_data:
+
+networks:
+  d_net:
+    external: true
